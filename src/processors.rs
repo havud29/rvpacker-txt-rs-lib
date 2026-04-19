@@ -3,18 +3,17 @@ use crate::{
     constants::RVPACKER_IGNORE_FILE,
     core::{
         self, Base, MapBase, OtherBase, PluginBase, ScriptBase, SystemBase,
-        filter_maps, filter_other, get_engine_extension, parse_ignore,
+        filter_maps, filter_other, parse_ignore,
     },
     types::{
         BaseFlags, DuplicateMode, EngineType, Error, FileFlags, GameType, Mode,
         ReadMode,
     },
 };
-use gxhash::{GxHasher, HashSet, HashSetExt};
+use gxhash::{HashMap, HashSet, gxhash64};
 use log::{debug, info};
 use std::{
     fs::{DirEntry, create_dir_all, read, read_dir, read_to_string, write},
-    hash::Hash,
     mem::take,
     ops::ControlFlow,
     path::{Path, PathBuf},
@@ -28,7 +27,7 @@ pub(crate) struct Processor {
     pub game_type: GameType,
     pub flags: BaseFlags,
     pub duplicate_mode: DuplicateMode,
-    pub hashes: HashSet<u128>,
+    pub hashes: HashMap<String, u64>,
     pub skip_maps: Vec<u16>,
     pub skip_events: Vec<(RPGMFileType, Vec<u16>)>,
     pub map_events: bool,
@@ -134,14 +133,18 @@ impl Processor {
 
         let base_ref = unsafe { &mut *(&raw mut base) };
 
-        let mut new_hashes = HashSet::with_capacity(self.hashes.len());
-        let mut hasher = GxHasher::with_seed(self.duplicate_mode as i64);
         let mut hash = |content: &[u8], filename: &str| {
-            content.hash(&mut hasher);
-            let result = hasher.finish_u128();
+            let filename = &filename
+                [0..filename.find('.').unwrap_or(filename.len())]
+                .to_ascii_lowercase();
+            let hash = gxhash64(content, self.duplicate_mode as i64);
+            let mut unchanged = false;
 
-            let unchanged = self.hashes.contains(&result);
-            new_hashes.insert(result);
+            if let Some(&old_hash) = self.hashes.get(filename) {
+                unchanged = old_hash == hash;
+            }
+
+            self.hashes.insert(filename.to_string(), hash);
 
             if unchanged && self.mode.is_append_default() {
                 info!(
@@ -159,7 +162,7 @@ impl Processor {
             .flatten()
             .collect();
 
-        let engine_extension = get_engine_extension(engine_type);
+        let engine_extension = engine_type.extension();
 
         if self.file_flags.contains(FileFlags::Map) {
             let mut map_base = MapBase::new(base_ref);
@@ -430,8 +433,6 @@ impl Processor {
             }
         }
 
-        self.hashes = take(&mut new_hashes);
-
         if base.flags.contains(BaseFlags::CreateIgnore) {
             use std::fmt::Write;
 
@@ -697,10 +698,10 @@ impl Reader {
     ///
     /// # Parameters
     ///
-    /// - `hashes` - [`Vec<u128>`] of calculated hashes from the previous read
+    /// - `hashes` - iterator over (String, u64) pairs of calculated hashes from the previous read.
     ///
-    pub fn set_hashes(&mut self, hashes: Vec<u128>) {
-        self.processor.hashes = HashSet::from_iter(hashes);
+    pub fn set_hashes(&mut self, hashes: impl Iterator<Item = (String, u64)>) {
+        self.processor.hashes = hashes.collect();
     }
 
     /// Returns hashes, corresponding to the processed files.
@@ -711,10 +712,10 @@ impl Reader {
     ///
     /// # Returns
     ///
-    /// - [`Vec<u128>`] - vector of calculated hashes
+    /// - Iterator over (String, u64) filenames and hashes.
     ///
-    pub fn hashes(&mut self) -> Vec<u128> {
-        Vec::from_iter(take(&mut self.processor.hashes))
+    pub fn hashes(&mut self) -> impl Iterator<Item = (String, u64)> {
+        take(&mut self.processor.hashes).into_iter()
     }
 
     /// Reads the RPG Maker files from `source_path` to `.txt` files in `translation_path`.
@@ -930,11 +931,14 @@ impl ReaderBuilder {
     ///
     /// # Parameters
     ///
-    /// - hashes - [`Vec<u128>`] of calculated hashes from the previous read
+    /// - `hashes` - Iterator over (String, u64) of calculated hashes from the previous read.
     ///
     #[must_use]
-    pub fn hashes(mut self, hashes: Vec<u128>) -> Self {
-        self.reader.processor.hashes = HashSet::from_iter(hashes);
+    pub fn hashes(
+        mut self,
+        hashes: impl Iterator<Item = (String, u64)>,
+    ) -> Self {
+        self.reader.processor.hashes = hashes.collect();
         self
     }
 
@@ -1129,10 +1133,10 @@ impl Writer {
     ///
     /// # Parameters
     ///
-    /// - `hashes` - [`Vec<u128>`] of calculated hashes from the previous read
+    /// - `hashes` - Iterator over (String, u64) of calculated hashes from the previous read
     ///
-    pub fn set_hashes(&mut self, hashes: Vec<u128>) {
-        self.processor.hashes = HashSet::from_iter(hashes);
+    pub fn set_hashes(&mut self, hashes: impl Iterator<Item = (String, u64)>) {
+        self.processor.hashes = hashes.collect();
     }
 
     /// Sets map indices to skip when processing.
@@ -1501,10 +1505,10 @@ impl Purger {
     ///
     /// # Parameters
     ///
-    /// - `hashes` - [`Vec<u128>`] of calculated hashes from the previous read
+    /// - `hashes` - Iterator over (String, u64) of calculated hashes from the previous read
     ///
-    pub fn set_hashes(&mut self, hashes: Vec<u128>) {
-        self.processor.hashes = HashSet::from_iter(hashes);
+    pub fn set_hashes(&mut self, hashes: impl Iterator<Item = (String, u64)>) {
+        self.processor.hashes = hashes.collect();
     }
 
     /// Sets map indices to skip when processing.

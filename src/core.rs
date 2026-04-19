@@ -117,6 +117,52 @@ impl CustomReplace for str {
     }
 }
 
+/// Parses RPG Maker file from passed content.
+///
+/// # Parameters
+///
+/// - `content` - Content of file to parse.
+/// - `engine_type` - Engine type of the file.
+/// - `file_type` - Type of the file.
+///
+/// # Returns
+///
+/// - [`Value`] - if file was parsed successfully.
+/// - [`Error`] - if unable to deserialize the file.
+///
+/// # Errors
+///
+/// - [`Error::MarshalLoad`] - if unable to load the Marshal data.
+/// - [`Error::JsonParse`] - if unable to parse the JSON data.
+///
+pub fn parse_rpgm_file(
+    mut content: &[u8],
+    engine_type: EngineType,
+    file_type: RPGMFileType,
+) -> Result<Value, Error> {
+    if engine_type.is_new() {
+        // MZ includes Byte Order Mark in files.
+        if content.starts_with(BOM) {
+            content = &content[3..];
+        }
+
+        // SAFETY: JSON is always valid UTF-8.
+        let parsed = from_str::<SerdeValue>(unsafe {
+            std::str::from_utf8_unchecked(content)
+        })?;
+
+        Ok(Value::from(parsed))
+    } else {
+        let loaded = if file_type.is_scripts() {
+            load_binary(content, INSTANCE_VAR_PREFIX)
+        } else {
+            load_utf8(content, INSTANCE_VAR_PREFIX)
+        }?;
+
+        Ok(loaded)
+    }
+}
+
 /// Filters entries of [`std::fs::ReadDir`] and returns iterator of only `Map` entries.
 ///
 /// # Parameters
@@ -193,17 +239,6 @@ pub fn filter_other<'a>(
 
         None
     })
-}
-
-/// Returns the RPG Maker file extension that corresponds to given [`EngineType`].
-#[must_use]
-pub const fn get_engine_extension(engine_type: EngineType) -> &'static str {
-    match engine_type {
-        EngineType::New => "json",
-        EngineType::VXAce => "rvdata2",
-        EngineType::VX => "rvdata",
-        EngineType::XP => "rxdata",
-    }
 }
 
 /// Parses ignore file contents to [`IgnoreMap`].
@@ -1028,48 +1063,6 @@ impl<'a> Base {
         self.ignore_entry = static_entry;
     }
 
-    /// Parses RPG Maker file from passed content.
-    ///
-    /// This function determines how to parse the content by `self.engine_type`, and assumes it always set correctly.
-    ///
-    /// # Parameters
-    ///
-    /// - `content` - Content of file to parse.
-    ///
-    /// # Returns
-    ///
-    /// - [`Value`] - if file was parsed successfully.
-    /// - [`Error`] - if unable to deserialize the file.
-    ///
-    /// # Errors
-    ///
-    /// - [`Error::MarshalLoad`] - if unable to load the Marshal data.
-    /// - [`Error::JsonParse`] - if unable to parse the JSON data.
-    ///
-    fn parse_rpgm_file(&mut self, mut content: &[u8]) -> Result<Value, Error> {
-        if self.engine_type.is_new() {
-            // MZ includes Byte Order Mark in files.
-            if content.starts_with(BOM) {
-                content = &content[3..];
-            }
-
-            // SAFETY: JSON is always valid UTF-8.
-            let parsed = from_str::<SerdeValue>(unsafe {
-                std::str::from_utf8_unchecked(content)
-            })?;
-
-            Ok(Value::from(parsed))
-        } else {
-            let loaded = if self.file_type.is_scripts() {
-                load_binary(content, INSTANCE_VAR_PREFIX)
-            } else {
-                load_utf8(content, INSTANCE_VAR_PREFIX)
-            }?;
-
-            Ok(loaded)
-        }
-    }
-
     /// Initializes translation by filling `self.translation_maps` with parsed maps from `translation`.
     ///
     /// # Parameters
@@ -1540,10 +1533,11 @@ impl<'a> Base {
     fn finish(&mut self, value: Value) -> ProcessedData {
         let output_content = if self.mode.is_write() {
             ProcessedData::RPGMData(if self.file_type.is_plugins() {
-                ["var $plugins =\n".as_bytes(), unsafe {
-                    &to_vec(&SerdeValue::from(value)).unwrap_unchecked()
-                }]
-                .concat()
+                let plugins_bytes = unsafe {
+                    to_vec(&SerdeValue::from(value)).unwrap_unchecked()
+                };
+
+                ["var $plugins =\n".as_bytes(), &plugins_bytes].concat()
             } else if self.engine_type.is_new() {
                 unsafe { to_vec(&SerdeValue::from(value)).unwrap_unchecked() }
             } else {
@@ -2013,7 +2007,11 @@ impl<'a> MapBase<'a> {
         translation: Option<&str>,
     ) -> Result<Option<ProcessedData>, Error> {
         if self.mapinfos.is_null() {
-            self.mapinfos = self.base.parse_rpgm_file(mapinfos)?;
+            self.mapinfos = parse_rpgm_file(
+                mapinfos,
+                self.base.engine_type,
+                self.base.file_type,
+            )?;
         }
 
         self.base.initialize_translation(translation)?;
@@ -2027,7 +2025,11 @@ impl<'a> MapBase<'a> {
             return Ok(None);
         }
 
-        let mut map_object = self.base.parse_rpgm_file(content)?;
+        let mut map_object = parse_rpgm_file(
+            content,
+            self.base.engine_type,
+            self.base.file_type,
+        )?;
         let display_name = self.get_display_name(&map_object);
 
         if self.base.mode.is_read() {
@@ -2347,7 +2349,11 @@ impl<'a> OtherBase<'a> {
         self.base.reset();
         self.base.initialize_translation(translation)?;
 
-        let mut entry_value = self.base.parse_rpgm_file(content)?;
+        let mut entry_value = parse_rpgm_file(
+            content,
+            self.base.engine_type,
+            self.base.file_type,
+        )?;
 
         // SAFETY: All "other" entries are always arrays.
         let object_array =
@@ -2929,7 +2935,11 @@ impl<'a> SystemBase<'a> {
     ) -> Result<Option<ProcessedData>, Error> {
         self.base.initialize_translation(translation)?;
 
-        self.system_value = self.base.parse_rpgm_file(content)?;
+        self.system_value = parse_rpgm_file(
+            content,
+            self.base.engine_type,
+            self.base.file_type,
+        )?;
         let mut processed = false;
 
         for (entry_id, entry_name) in [
@@ -3168,10 +3178,13 @@ impl<'a> ScriptBase<'a> {
 
         // SAFETY: Scripts are always array.
         let mut scripts_array = unsafe {
-            self.base
-                .parse_rpgm_file(content)?
-                .into_array()
-                .unwrap_unchecked()
+            parse_rpgm_file(
+                content,
+                self.base.engine_type,
+                self.base.file_type,
+            )?
+            .into_array()
+            .unwrap_unchecked()
         };
         let mut scripts = Self::decode_scripts(&scripts_array);
 

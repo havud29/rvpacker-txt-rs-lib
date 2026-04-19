@@ -1,6 +1,6 @@
 use crate::{
     constants::INSTANCE_VAR_PREFIX,
-    core::{ScriptBase, get_engine_extension},
+    core::ScriptBase,
     types::{EngineType, Error, Scripts},
 };
 use marshal_rs::{Value, dump, load_binary, load_utf8};
@@ -214,10 +214,9 @@ pub fn write<P: AsRef<Path>>(
         let content = read_to_string(&path).map_err(|e| Error::Io(path, e))?;
 
         let filename = entry.file_name();
-        let output_file_path = output_path.as_ref().join(
-            Path::new(&filename)
-                .with_extension(get_engine_extension(engine_type)),
-        );
+        let output_file_path = output_path
+            .as_ref()
+            .join(Path::new(&filename).with_extension(engine_type.extension()));
 
         let written = if filename == "Scripts.rb" {
             let mut scripts = Scripts::new(

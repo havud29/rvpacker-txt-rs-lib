@@ -659,6 +659,42 @@ pub enum EngineType {
     XP,
 }
 
+impl EngineType {
+    pub fn from_extension(extension: &str) -> Option<Self> {
+        match extension {
+            "json" => Some(EngineType::New),
+            "rxdata" => Some(EngineType::XP),
+            "rvdata" => Some(EngineType::VX),
+            "rvdata2" => Some(EngineType::VXAce),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(self) -> &'static str {
+        match self {
+            EngineType::New => "MV/MZ",
+            EngineType::VX => "VX",
+            EngineType::VXAce => "VX Ace",
+            EngineType::XP => "XP",
+        }
+    }
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            EngineType::New => "json",
+            EngineType::VXAce => "rvdata2",
+            EngineType::VX => "rvdata",
+            EngineType::XP => "rxdata",
+        }
+    }
+}
+
+impl std::fmt::Display for EngineType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.to_str())
+    }
+}
+
 bitflags! {
     #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
     #[serde(into = "u16", try_from = "u16")]
