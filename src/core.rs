@@ -178,24 +178,38 @@ pub fn filter_maps<'a>(
     entries: impl Iterator<Item = &'a DirEntry>,
     engine_extension: &'a str,
 ) -> impl Iterator<Item = &'a DirEntry> {
-    entries.filter_map(move |entry| {
-        if !entry.file_type().ok()?.is_file() {
-            return None;
-        }
+    let mut result: Vec<&'a DirEntry> = entries
+        .filter_map(move |entry| {
+            if !entry.file_type().ok()?.is_file() {
+                return None;
+            }
 
+            let filename = entry.file_name();
+            let extension = Path::new(&filename).extension()?;
+            let filename_str = filename.to_str()?;
+
+            if filename_str.starts_with("Map")
+                && filename_str.as_bytes().get(3)?.is_ascii_digit()
+                && extension == engine_extension
+            {
+                return Some(entry);
+            }
+
+            None
+        })
+        .collect();
+
+    result.sort_by_key(|entry| {
         let filename = entry.file_name();
-        let extension = Path::new(&filename).extension()?;
-        let filename_str = filename.to_str()?;
+        let filename_str = filename.to_str().unwrap_or("");
+        let digits: String = filename_str[3..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        digits.parse::<u32>().unwrap_or(0)
+    });
 
-        if filename_str.starts_with("Map")
-            && filename_str.as_bytes().get(3)?.is_ascii_digit()
-            && extension == engine_extension
-        {
-            return Some(entry);
-        }
-
-        None
-    })
+    result.into_iter()
 }
 
 /// Filters entries of [`std::fs::ReadDir`] and returns iterator of only other entries.
@@ -215,30 +229,30 @@ pub fn filter_other<'a>(
     engine_extension: &'a str,
     game_type: GameType,
 ) -> impl Iterator<Item = &'a DirEntry> {
-    entries.filter_map(move |entry| {
-        if !entry.file_type().ok()?.is_file() {
-            return None;
-        }
-
-        let filename = entry.file_name();
-        let filename_path = Path::new(&filename);
-        let basename = filename_path
-            .file_stem()
-            .and_then(|basename| basename.to_str())?;
-        let extension = filename_path.extension()?;
-
-        let file_type = RPGMFileType::from_filename(basename);
-
-        if extension == engine_extension && file_type.is_other() {
-            if game_type.is_termina() && file_type.is_states() {
+    let mut result: Vec<&'a DirEntry> = entries
+        .filter_map(move |entry| {
+            if !entry.file_type().ok()?.is_file() {
                 return None;
             }
+            let filename = entry.file_name();
+            let filename_path = Path::new(&filename);
+            let basename = filename_path
+                .file_stem()
+                .and_then(|basename| basename.to_str())?;
+            let extension = filename_path.extension()?;
+            let file_type = RPGMFileType::from_filename(basename);
+            if extension == engine_extension && file_type.is_other() {
+                if game_type.is_termina() && file_type.is_states() {
+                    return None;
+                }
+                return Some(entry);
+            }
+            None
+        })
+        .collect();
 
-            return Some(entry);
-        }
-
-        None
-    })
+    result.sort_by_key(|entry| entry.file_name());
+    result.into_iter()
 }
 
 /// Parses ignore file contents to [`IgnoreMap`].
