@@ -321,7 +321,7 @@ impl<K, V, S: BuildHasher + Default> IndexMapExt for IndexMap<K, V, S> {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct TranslationEntry {
     pub comments: Vec<String>,
     pub translation: String,
@@ -380,7 +380,7 @@ impl Serialize for Error {
     }
 }
 
-#[derive(Debug, Clone, Copy, EnumIs, Deserialize, Serialize, VariantNames)]
+#[derive(Clone, Copy, Debug, Deserialize, EnumIs, Serialize, VariantNames)]
 #[serde(into = "u8", try_from = "u8")]
 #[strum(serialize_all = "lowercase")]
 #[repr(u8)]
@@ -529,7 +529,7 @@ pub enum GameType {
     LisaRPG,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, VariantNames)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, VariantNames)]
 #[serde(into = "u8", try_from = "u8")]
 #[strum(serialize_all = "lowercase")]
 #[repr(u8)]
@@ -696,7 +696,7 @@ impl std::fmt::Display for EngineType {
 }
 
 bitflags! {
-    #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+    #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
     #[serde(into = "u16", try_from = "u16")]
     #[repr(transparent)]
     /// There's four [`FileFlags`] variants:
@@ -841,7 +841,7 @@ impl Default for FileFlags {
 }
 
 bitflags! {
-    #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+    #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
     #[serde(into = "u8", try_from = "u8")]
     #[repr(transparent)]
     /// Indicates different modes of processing the text.
@@ -938,7 +938,7 @@ impl Scripts {
     }
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) enum CommentPos {
     None = -1,
     Name,
