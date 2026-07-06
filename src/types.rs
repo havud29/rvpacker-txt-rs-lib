@@ -275,28 +275,38 @@ impl FromStr for RPGMFileType {
     type Err = Infallible;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Ok(if value.len() >= 3 {
-            let letters: &str = &value[0..3].to_lowercase();
+        // Callers pass either a bare basename ("Stamp") or a full filename
+        // ("Actors.rvdata2"); reduce to the stem before the first '.'.
+        let stem = value.split('.').next().unwrap_or(value);
 
-            match letters {
-                "act" => Self::Actors,
-                "arm" => Self::Armors,
-                "cla" => Self::Classes,
-                "com" => Self::Events,
-                "ene" => Self::Enemies,
-                "ite" => Self::Items,
-                "map" => Self::Map,
-                "ski" => Self::Skills,
-                "sta" => Self::States,
-                "sys" => Self::System,
-                "tro" => Self::Troops,
-                "wea" => Self::Weapons,
-                "scr" => Self::Scripts,
-                "plu" => Self::Plugins,
-                _ => Self::Invalid,
-            }
-        } else {
-            Self::Invalid
+        // Numbered map files (Map001…) and MapInfos keep the "Map" prefix match,
+        // so map handling is unchanged.
+        if stem.get(0..3).is_some_and(|p| p.eq_ignore_ascii_case("map")) {
+            return Ok(Self::Map);
+        }
+
+        // Every other data file must match its FULL stem name. Matching only a
+        // 3-char prefix misidentifies plugin data files whose name shares a
+        // prefix with a real type — e.g. `Stamp.json` -> "sta" -> States — which
+        // then crashes `read` (tries to JSON-parse non-JSON plugin data) and
+        // `write` (demands a bogus `stamp.txt`). Exact-name dispatch mirrors
+        // Translator++ and makes rvpacker ignore foreign files instead of
+        // choking on them.
+        Ok(match stem.to_lowercase().as_str() {
+            "actors" => Self::Actors,
+            "armors" => Self::Armors,
+            "classes" => Self::Classes,
+            "commonevents" => Self::Events,
+            "enemies" => Self::Enemies,
+            "items" => Self::Items,
+            "skills" => Self::Skills,
+            "states" => Self::States,
+            "system" => Self::System,
+            "troops" => Self::Troops,
+            "weapons" => Self::Weapons,
+            "scripts" => Self::Scripts,
+            "plugins" => Self::Plugins,
+            _ => Self::Invalid,
         })
     }
 }

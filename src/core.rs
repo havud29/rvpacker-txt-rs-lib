@@ -2210,11 +2210,22 @@ impl<'a> MapBase<'a> {
     /// - [`bool`] - Whether map is unused.
     ///
     fn is_map_unused(&self, id: u16) -> bool {
-        // If map ID can't be found in mapinfos, then it is unused in game.
+        // A map is unused if its MapInfos slot is missing OR null. A Map###.json
+        // file can exist on disk while its MapInfos[id] entry is null (the map was
+        // deleted from the editor's tree but the .json left behind). The original
+        // check only tested get_index().is_none() (out-of-bounds), so an in-bounds
+        // null slipped through as "used" and get_map_order/get_map_name then
+        // indexed null["order"] -> panic "Cannot index into a Value that is not an
+        // object" (real game: HEARTBEAT, MV, 15 such maps 256-275). Treat null as
+        // unused so those maps are skipped.
         if self.base.engine_type.is_new() {
-            self.mapinfos.get_index(id as usize).is_none()
+            self.mapinfos
+                .get_index(id as usize)
+                .map_or(true, |value| value.is_null())
         } else {
-            self.mapinfos.get(&Value::int(i32::from(id))).is_none()
+            self.mapinfos
+                .get(&Value::int(i32::from(id)))
+                .map_or(true, |value| value.is_null())
         }
     }
 
