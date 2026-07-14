@@ -1044,6 +1044,23 @@ impl<'a> Base {
                 }
             }
         }
+
+        // Flush a dialogue block left over at the END of the command list.
+        // The mid-list flush above is disabled for XP (`!engine_type.is_xp()`),
+        // so an XP Show Text sequence is only flushed when the NEXT Show Text
+        // start appears. The last dialogue block in an event — one followed by
+        // non-dialogue commands (wait/move/end) with no further Show Text — was
+        // therefore never emitted, dropping those lines from read AND write
+        // (~5% of Show Text on some XP games, e.g. Maze Crowley). This runs only
+        // when a block remains, so it's a no-op for engines that already flushed.
+        if !dialogue_lines.is_empty() {
+            self.join_dialogue_lines(
+                list,
+                &mut dialogue_lines,
+                &mut dialogue_line_indices,
+                write_string_literally,
+            );
+        }
     }
 
     /// Gets ignore entry from `self.ignore_map` by `id`.
